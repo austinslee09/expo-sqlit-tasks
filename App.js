@@ -1,10 +1,10 @@
 import { SQLiteProvider } from 'expo-sqlite';
-import Main from './Main';
+import ExpenseScreen from './ExpenseScreen';
 
 export default function App() {
   return (
-    <SQLiteProvider databaseName="tasks.db">
-      <Main />
+    <SQLiteProvider databaseName="expenses.db">
+      <ExpenseScreen />
     </SQLiteProvider>
   );
 }
