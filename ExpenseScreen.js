@@ -127,6 +127,12 @@ export default function ExpenseScreen() {
     return true;
   });
 
+  // sum of amounts for currently visible (filtered) expenses
+  const visibleTotal = filteredExpenses.reduce((sum, it) => {
+    const n = parseFloat(it.amount);
+    return sum + (isNaN(n) ? 0 : n);
+  }, 0);
+
   useEffect(() => {
     async function setup() {
       await db.execAsync(`
@@ -151,11 +157,11 @@ export default function ExpenseScreen() {
 
     setup();
   }, []);
-
+  
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.heading}>Student Expense Tracker</Text>
-
+  
       <View style={styles.form}>
         <TextInput
           style={styles.input}
@@ -198,7 +204,7 @@ export default function ExpenseScreen() {
         />
         <Button title="Add Expense" onPress={addExpense} />
       </View>
-
+  
       {/* Filter controls */}
       <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
         <TouchableOpacity onPress={() => setFilter('all')} style={{ marginHorizontal: 6 }}>
@@ -211,14 +217,20 @@ export default function ExpenseScreen() {
           <Text style={{ color: filter === 'month' ? '#fff' : '#9ca3af' }}>This month</Text>
         </TouchableOpacity>
       </View>
-
+  
+      {/* Visible total */}
+      <View style={styles.totalContainer}>
+        <Text style={styles.totalLabel}>Total (visible):</Text>
+        <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
+      </View>
+  
       <FlatList
         data={filteredExpenses}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderExpense}
         ListEmptyComponent={<Text style={styles.empty}>No expenses yet.</Text>}
       />
-
+  
       <Text style={styles.footer}>
         Enter your expenses and they’ll be saved locally with SQLite.
       </Text>
@@ -282,5 +294,26 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginTop: 12,
     fontSize: 12,
+  },
+  totalContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#0f172a',
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#1f2a44',
+  },
+  totalLabel: {
+    color: '#9ca3af',
+    fontSize: 14,
+  },
+  totalAmount: {
+    color: '#fbbf24',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
