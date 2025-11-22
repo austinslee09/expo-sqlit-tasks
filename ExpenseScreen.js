@@ -18,6 +18,8 @@ export default function ExpenseScreen() {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
+  const [date, setDate] = useState('');
+  const [filter, setFilter] = useState('all'); // 'all' | 'week' | 'month'
 
   const loadExpenses = async () => {
     const rows = await db.getAllAsync(
@@ -41,14 +43,32 @@ export default function ExpenseScreen() {
       return;
     }
 
+    // Normalize/validate date to ISO YYYY-MM-DD or null
+    let dateIso = null;
+    if (date) {
+      // if already YYYY-MM-DD accept it; otherwise try parsing and converting
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        dateIso = date;
+      } else {
+        const parsed = new Date(date);
+        if (!isNaN(parsed.getTime())) {
+          dateIso = parsed.toISOString().slice(0, 10);
+        } else {
+          // invalid date input: clear and treat as null
+          dateIso = null;
+        }
+      }
+    }
+
     await db.runAsync(
-      'INSERT INTO expenses (amount, category, note) VALUES (?, ?, ?);',
-      [amountNumber, trimmedCategory, trimmedNote || null]
+      'INSERT INTO expenses (amount, category, note, date) VALUES (?, ?, ?, ?);',
+      [amountNumber, trimmedCategory, trimmedNote || null, dateIso]
     );
 
     setAmount('');
     setCategory('');
     setNote('');
+    setDate('');
 
     loadExpenses();
   };
@@ -60,19 +80,52 @@ export default function ExpenseScreen() {
   };
 
 
-  const renderExpense = ({ item }) => (
-    <View style={styles.expenseRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.expenseAmount}>${Number(item.amount).toFixed(2)}</Text>
-        <Text style={styles.expenseCategory}>{item.category}</Text>
-        {item.note ? <Text style={styles.expenseNote}>{item.note}</Text> : null}
-      </View>
+  const renderExpense = ({ item }) => {
+    const isoDate = item.date ? (() => {
+      const d = new Date(item.date);
+      return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    })() : null;
 
-      <TouchableOpacity onPress={() => deleteExpense(item.id)}>
-        <Text style={styles.delete}>✕</Text>
-      </TouchableOpacity>
-    </View>
-  );
+    return (
+      <View style={styles.expenseRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.expenseAmount}>${Number(item.amount).toFixed(2)}</Text>
+          <Text style={styles.expenseCategory}>{item.category}</Text>
+          {item.note ? <Text style={styles.expenseNote}>{item.note}</Text> : null}
+          {isoDate ? <Text style={styles.expenseNote}>{isoDate}</Text> : null}
+        </View>
+
+        <TouchableOpacity onPress={() => deleteExpense(item.id)}>
+          <Text style={styles.delete}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // compute filteredExpenses based on filter state
+  const filteredExpenses = expenses.filter((item) => {
+    if (filter === 'all') return true;
+    if (!item.date) return false;
+
+    const d = new Date(item.date);
+    if (isNaN(d.getTime())) return false;
+
+    const now = new Date();
+
+    if (filter === 'week') {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(now.getDate() - 6); // include today and last 6 days = 7-day window
+      // compare only date part
+      const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return dateOnly >= new Date(sevenDaysAgo.getFullYear(), sevenDaysAgo.getMonth(), sevenDaysAgo.getDate());
+    }
+
+    if (filter === 'month') {
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }
+
+    return true;
+  });
 
   useEffect(() => {
     async function setup() {
@@ -81,9 +134,17 @@ export default function ExpenseScreen() {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           amount REAL NOT NULL,
           category TEXT NOT NULL,
-          note TEXT
+          note TEXT,
+          date TEXT
         );
       `);
+
+      // For existing DBs without the column: try to add it (ignore failure)
+      try {
+        await db.execAsync('ALTER TABLE expenses ADD COLUMN date TEXT;');
+      } catch (e) {
+        // column probably already exists or ALTER not allowed — ignore
+      }
 
       await loadExpenses();
     }
@@ -118,16 +179,44 @@ export default function ExpenseScreen() {
           value={note}
           onChangeText={setNote}
         />
+        <TextInput
+          style={styles.input}
+          placeholder="Date (YYYY-MM-DD) — ISO"
+          placeholderTextColor="#9ca3af"
+          value={date}
+          onChangeText={(text) => {
+            // allow only digits and hyphens, max length 10
+            const cleaned = text.replace(/[^0-9-]/g, '').slice(0, 10);
+            setDate(cleaned);
+          }}
+          onEndEditing={() => {
+            // optional: if not a full ISO date, clear it (keeps UI strict)
+            if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+              setDate('');
+            }
+          }}
+        />
         <Button title="Add Expense" onPress={addExpense} />
       </View>
 
+      {/* Filter controls */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
+        <TouchableOpacity onPress={() => setFilter('all')} style={{ marginHorizontal: 6 }}>
+          <Text style={{ color: filter === 'all' ? '#fff' : '#9ca3af' }}>All</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setFilter('week')} style={{ marginHorizontal: 6 }}>
+          <Text style={{ color: filter === 'week' ? '#fff' : '#9ca3af' }}>This week</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setFilter('month')} style={{ marginHorizontal: 6 }}>
+          <Text style={{ color: filter === 'month' ? '#fff' : '#9ca3af' }}>This month</Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
-        data={expenses}
+        data={filteredExpenses}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderExpense}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No expenses yet.</Text>
-        }
+        ListEmptyComponent={<Text style={styles.empty}>No expenses yet.</Text>}
       />
 
       <Text style={styles.footer}>
