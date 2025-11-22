@@ -20,6 +20,7 @@ export default function ExpenseScreen() {
   const [note, setNote] = useState('');
   const [date, setDate] = useState('');
   const [filter, setFilter] = useState('all'); // 'all' | 'week' | 'month'
+  const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' or category string
 
   const loadExpenses = async () => {
     const rows = await db.getAllAsync(
@@ -102,7 +103,7 @@ export default function ExpenseScreen() {
     );
   };
 
-  // compute filteredExpenses based on filter state
+  // compute filteredExpenses based on time filter state (All / week / month)
   const filteredExpenses = expenses.filter((item) => {
     if (filter === 'all') return true;
     if (!item.date) return false;
@@ -127,11 +128,27 @@ export default function ExpenseScreen() {
     return true;
   });
 
-  // sum of amounts for currently visible (filtered) expenses
-  const visibleTotal = filteredExpenses.reduce((sum, it) => {
+  // totals per category for the currently time-filtered set
+  const totalsByCategory = filteredExpenses.reduce((acc, it) => {
+    const cat = it.category || 'Other';
+    const n = parseFloat(it.amount);
+    acc[cat] = (acc[cat] || 0) + (isNaN(n) ? 0 : n);
+    return acc;
+  }, {});
+
+  // apply category filter on top of time-based filtering
+  const finalFiltered = filteredExpenses.filter((it) =>
+    categoryFilter === 'all' ? true : it.category === categoryFilter
+  );
+
+  // sum of amounts for currently visible (time + category filtered) expenses
+  const visibleTotal = finalFiltered.reduce((sum, it) => {
     const n = parseFloat(it.amount);
     return sum + (isNaN(n) ? 0 : n);
   }, 0);
+
+  // helper label for the current time filter
+  const filterLabel = filter === 'week' ? 'This Week' : filter === 'month' ? 'This Month' : 'All';
 
   useEffect(() => {
     async function setup() {
@@ -223,9 +240,39 @@ export default function ExpenseScreen() {
         <Text style={styles.totalLabel}>Total (visible):</Text>
         <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
       </View>
+
+      {/* By Category (filtered set) — tappable to filter list by category */}
+      <View style={styles.byCategoryContainer}>
+        <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
+        {Object.keys(totalsByCategory).length === 0 ? (
+          <Text style={styles.byCategoryEmpty}>No category totals</Text>
+        ) : (
+          <>
+            {/* "All" entry to clear category filter */}
+            <TouchableOpacity onPress={() => setCategoryFilter('all')} style={[styles.byCategoryRow, categoryFilter === 'all' && styles.byCategoryActive]}>
+              <Text style={styles.byCategoryLabel}>• All</Text>
+              <Text style={styles.byCategoryAmount}>${Object.values(totalsByCategory).reduce((s, v) => s + v, 0).toFixed(2)}</Text>
+            </TouchableOpacity>
+
+            {Object.entries(totalsByCategory)
+              // optional: sort by descending amount so biggest categories appear first
+              .sort((a, b) => b[1] - a[1])
+              .map(([cat, sum]) => (
+                <TouchableOpacity
+                  key={cat}
+                  onPress={() => setCategoryFilter(cat)}
+                  style={[styles.byCategoryRow, categoryFilter === cat && styles.byCategoryActive]}
+                >
+                  <Text style={styles.byCategoryLabel}>• {cat}</Text>
+                  <Text style={styles.byCategoryAmount}>${sum.toFixed(2)}</Text>
+                </TouchableOpacity>
+              ))}
+          </>
+        )}
+      </View>
   
       <FlatList
-        data={filteredExpenses}
+        data={finalFiltered}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderExpense}
         ListEmptyComponent={<Text style={styles.empty}>No expenses yet.</Text>}
@@ -315,5 +362,42 @@ const styles = StyleSheet.create({
     color: '#fbbf24',
     fontSize: 16,
     fontWeight: '700',
+  },
+  byCategoryContainer: {
+    backgroundColor: '#1f2937',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  byCategoryTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  byCategoryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  byCategoryLabel: {
+    color: '#e5e7eb',
+    fontSize: 14,
+  },
+  byCategoryAmount: {
+    color: '#fbbf24',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  byCategoryEmpty: {
+    color: '#9ca3af',
+    fontSize: 14,
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+  byCategoryActive: {
+    backgroundColor: '#081226',
+    borderRadius: 6,
   },
 });
