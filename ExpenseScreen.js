@@ -21,6 +21,7 @@ export default function ExpenseScreen() {
   const [date, setDate] = useState('');
   const [filter, setFilter] = useState('all'); // 'all' | 'week' | 'month'
   const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' or category string
+  const [editingId, setEditingId] = useState(null); // null = adding, number = editing existing
 
   const loadExpenses = async () => {
     const rows = await db.getAllAsync(
@@ -61,15 +62,24 @@ export default function ExpenseScreen() {
       }
     }
 
-    await db.runAsync(
-      'INSERT INTO expenses (amount, category, note, date) VALUES (?, ?, ?, ?);',
-      [amountNumber, trimmedCategory, trimmedNote || null, dateIso]
-    );
+    if (editingId !== null) {
+      await db.runAsync(
+        'UPDATE expenses SET amount = ?, category = ?, note = ?, date = ? WHERE id = ?;',
+        [amountNumber, trimmedCategory, trimmedNote || null, dateIso, editingId]
+      );
+    } else {
+      await db.runAsync(
+        'INSERT INTO expenses (amount, category, note, date) VALUES (?, ?, ?, ?);',
+        [amountNumber, trimmedCategory, trimmedNote || null, dateIso]
+      );
+    }
 
+    // clear form + exit edit mode
     setAmount('');
     setCategory('');
     setNote('');
     setDate('');
+    setEditingId(null);
 
     loadExpenses();
   };
@@ -96,9 +106,25 @@ export default function ExpenseScreen() {
           {isoDate ? <Text style={styles.expenseNote}>{isoDate}</Text> : null}
         </View>
 
-        <TouchableOpacity onPress={() => deleteExpense(item.id)}>
-          <Text style={styles.delete}>✕</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity
+            onPress={() => {
+              // populate form and enter edit mode
+              setAmount(String(item.amount));
+              setCategory(item.category || '');
+              setNote(item.note || '');
+              setDate(item.date ? (new Date(item.date)).toISOString().slice(0, 10) : '');
+              setEditingId(item.id);
+            }}
+            style={{ marginRight: 12 }}
+          >
+            <Text style={{ color: '#60a5fa', fontSize: 16 }}>Edit</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => deleteExpense(item.id)}>
+            <Text style={styles.delete}>✕</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -219,7 +245,22 @@ export default function ExpenseScreen() {
             }
           }}
         />
-        <Button title="Add Expense" onPress={addExpense} />
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <Button title={editingId ? 'Save changes' : 'Add Expense'} onPress={addExpense} />
+          {editingId ? (
+            <Button
+              title="Cancel"
+              color="#f87171"
+              onPress={() => {
+                setEditingId(null);
+                setAmount('');
+                setCategory('');
+                setNote('');
+                setDate('');
+              }}
+            />
+          ) : null}
+        </View>
       </View>
   
       {/* Filter controls */}
