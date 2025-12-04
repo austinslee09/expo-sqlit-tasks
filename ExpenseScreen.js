@@ -8,7 +8,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import Svg, { Path } from 'react-native-svg';
@@ -158,30 +157,50 @@ export default function ExpenseScreen() {
     );
   };
 
-  // compute filteredExpenses based on time filter state (All / week / month)
+  /* replace the filteredExpenses definition with the following improved logic */
   const filteredExpenses = expenses.filter((item) => {
-    if (filter === 'all') return true;
-    if (!item.date) return false;
+	// keep items when no time filtering requested
+	if (filter === 'all') return true;
 
-    const d = new Date(item.date);
-    if (isNaN(d.getTime())) return false;
+	// must have a date to be included in week/month filters
+	if (!item.date) return false;
 
-    const now = new Date();
+	// parse as local midnight to avoid timezone roll issues (expects "YYYY-MM-DD")
+	const parseIsoDate = (iso) => {
+		try {
+			// Ensure we create a local-date at midnight
+			return new Date(`${iso}T00:00:00`);
+		} catch {
+			return new Date(NaN);
+		}
+	};
 
-    if (filter === 'week') {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(now.getDate() - 6); // include today and last 6 days = 7-day window
-      // compare only date part
-      const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      return dateOnly >= new Date(sevenDaysAgo.getFullYear(), sevenDaysAgo.getMonth(), sevenDaysAgo.getDate());
-    }
+	const d = parseIsoDate(item.date);
+	if (isNaN(d.getTime())) return false;
 
-    if (filter === 'month') {
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-    }
+	const now = new Date();
 
-    return true;
-  });
+	if (filter === 'week') {
+		// Compute start of current week (Monday) and end (Sunday)
+		const day = now.getDay(); // 0 (Sun) .. 6 (Sat)
+		// Convert to 0=Mon .. 6=Sun by (day+6)%7, then subtract to get Monday
+		const daysSinceMonday = (day + 6) % 7;
+		const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday);
+		startOfWeek.setHours(0, 0, 0, 0);
+		const endOfWeek = new Date(startOfWeek);
+		endOfWeek.setDate(startOfWeek.getDate() + 6);
+		endOfWeek.setHours(23, 59, 59, 999);
+
+		return d >= startOfWeek && d <= endOfWeek;
+	}
+
+	if (filter === 'month') {
+		// Same calendar month and year
+		return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+	}
+
+	return true;
+});
 
   // totals per category for the currently time-filtered set
   const totalsByCategory = filteredExpenses.reduce((acc, it) => {
@@ -236,148 +255,149 @@ export default function ExpenseScreen() {
   
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
-        <Text style={styles.heading}>Student Expense Tracker</Text>
-  
-        <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Amount (e.g. 12.50)"
-            placeholderTextColor="#9ca3af"
-            keyboardType="numeric"
-            value={amount}
-            onChangeText={setAmount}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Category (Food, Books, Rent...)"
-            placeholderTextColor="#9ca3af"
-            value={category}
-            onChangeText={setCategory}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Note (optional)"
-            placeholderTextColor="#9ca3af"
-            value={note}
-            onChangeText={setNote}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Date (YYYY-MM-DD) — ISO"
-            placeholderTextColor="#9ca3af"
-            value={date}
-            onChangeText={(text) => {
-              // allow only digits and hyphens, max length 10
-              const cleaned = text.replace(/[^0-9-]/g, '').slice(0, 10);
-              setDate(cleaned);
-            }}
-            onEndEditing={() => {
-              // optional: if not a full ISO date, clear it (keeps UI strict)
-              if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-                setDate('');
-              }
-            }}
-          />
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-            <Button title={editingId ? 'Save changes' : 'Add Expense'} onPress={addExpense} />
-            {editingId ? (
-              <Button
-                title="Cancel"
-                color="#f87171"
-                onPress={() => {
-                  setEditingId(null);
-                  setAmount('');
-                  setCategory('');
-                  setNote('');
-                  setDate('');
-                }}
-              />
-            ) : null}
-          </View>
-        </View>
-  
-        {/* Filter controls */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
-          <TouchableOpacity onPress={() => setFilter('all')} style={{ marginHorizontal: 6 }}>
-            <Text style={{ color: filter === 'all' ? '#fff' : '#9ca3af' }}>All</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setFilter('week')} style={{ marginHorizontal: 6 }}>
-            <Text style={{ color: filter === 'week' ? '#fff' : '#9ca3af' }}>This week</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setFilter('month')} style={{ marginHorizontal: 6 }}>
-            <Text style={{ color: filter === 'month' ? '#fff' : '#9ca3af' }}>This month</Text>
-          </TouchableOpacity>
-        </View>
-  
-        {/* Visible total */}
-        <View style={styles.totalContainer}>
-          <Text style={styles.totalLabel}>Total (visible):</Text>
-          <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
-        </View>
-
-        {/* Pie chart for current time filter (uses totalsByCategory) */}
-        {pieEntries.length > 0 && (
-          <View style={styles.pieContainer}>
-            <Text style={styles.pieTitle}>Spending by Category</Text>
-            <View style={{ alignItems: 'center', marginVertical: 10 }}>
-              <SimplePieChart data={totalsByCategory} size={180} colors={pieColors} />
-            </View>
-            <View style={styles.pieLegend}>
-              {pieEntries.map(([cat, value], idx) => {
-                const total = pieEntries.reduce((s, [, v]) => s + v, 0);
-                const pct = total ? ((value / total) * 100).toFixed(1) : '0.0';
-                return (
-                  <View key={cat} style={styles.legendRow}>
-                    <View style={[styles.legendDot, { backgroundColor: pieColors[idx % pieColors.length] }]} />
-                    <Text style={styles.legendCat}>{cat}</Text>
-                    <Text style={styles.legendValue}>${value.toFixed(2)}</Text>
-                    <Text style={styles.legendPercent}>({pct}%)</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        )}
- 
-        {/* By Category (filtered set) — tappable to filter list by category */}
-        <View style={styles.byCategoryContainer}>
-          <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
-          {Object.keys(totalsByCategory).length === 0 ? (
-            <Text style={styles.byCategoryEmpty}>No category totals</Text>
-          ) : (
-            <>
-              {/* "All" entry to clear category filter */}
-              <TouchableOpacity onPress={() => setCategoryFilter('all')} style={[styles.byCategoryRow, categoryFilter === 'all' && styles.byCategoryActive]}>
-                <Text style={styles.byCategoryLabel}>• All</Text>
-                <Text style={styles.byCategoryAmount}>${Object.values(totalsByCategory).reduce((s, v) => s + v, 0).toFixed(2)}</Text>
-              </TouchableOpacity>
-
-              {Object.entries(totalsByCategory)
-                // optional: sort by descending amount so biggest categories appear first
-                .sort((a, b) => b[1] - a[1])
-                .map(([cat, sum]) => (
-                  <TouchableOpacity
-                    key={cat}
-                    onPress={() => setCategoryFilter(cat)}
-                    style={[styles.byCategoryRow, categoryFilter === cat && styles.byCategoryActive]}
-                  >
-                    <Text style={styles.byCategoryLabel}>• {cat}</Text>
-                    <Text style={styles.byCategoryAmount}>${sum.toFixed(2)}</Text>
-                  </TouchableOpacity>
-                ))}
-            </>
-          )}
-        </View>
-      </ScrollView>
-  
       <FlatList
         data={finalFiltered}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderExpense}
         ListEmptyComponent={<Text style={styles.empty}>No expenses yet.</Text>}
-        nestedScrollEnabled={true}
-        style={{ flexGrow: 0 }}
+        // header contains the form, filters, totals, pie chart and category summary
+        ListHeaderComponent={
+          <>
+            <Text style={styles.heading}>Student Expense Tracker</Text>
+  
+            <View style={styles.form}>
+              <TextInput
+                style={styles.input}
+                placeholder="Amount (e.g. 12.50)"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={amount}
+                onChangeText={setAmount}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Category (Food, Books, Rent...)"
+                placeholderTextColor="#9ca3af"
+                value={category}
+                onChangeText={setCategory}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Note (optional)"
+                placeholderTextColor="#9ca3af"
+                value={note}
+                onChangeText={setNote}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Date (YYYY-MM-DD) — ISO"
+                placeholderTextColor="#9ca3af"
+                value={date}
+                onChangeText={(text) => {
+                  // allow only digits and hyphens, max length 10
+                  const cleaned = text.replace(/[^0-9-]/g, '').slice(0, 10);
+                  setDate(cleaned);
+                }}
+                onEndEditing={() => {
+                  // optional: if not a full ISO date, clear it (keeps UI strict)
+                  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                    setDate('');
+                  }
+                }}
+              />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <Button title={editingId ? 'Save changes' : 'Add Expense'} onPress={addExpense} />
+                {editingId ? (
+                  <Button
+                    title="Cancel"
+                    color="#f87171"
+                    onPress={() => {
+                      setEditingId(null);
+                      setAmount('');
+                      setCategory('');
+                      setNote('');
+                      setDate('');
+                    }}
+                  />
+                ) : null}
+              </View>
+            </View>
+  
+            {/* Filter controls */}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
+              <TouchableOpacity onPress={() => setFilter('all')} style={{ marginHorizontal: 6 }}>
+                <Text style={{ color: filter === 'all' ? '#fff' : '#9ca3af' }}>All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setFilter('week')} style={{ marginHorizontal: 6 }}>
+                <Text style={{ color: filter === 'week' ? '#fff' : '#9ca3af' }}>This week</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setFilter('month')} style={{ marginHorizontal: 6 }}>
+                <Text style={{ color: filter === 'month' ? '#fff' : '#9ca3af' }}>This month</Text>
+              </TouchableOpacity>
+            </View>
+  
+            {/* Visible total */}
+            <View style={styles.totalContainer}>
+              <Text style={styles.totalLabel}>Total (visible):</Text>
+              <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
+            </View>
+
+            {/* Pie chart for current time filter (uses totalsByCategory) */}
+            {pieEntries.length > 0 && (
+              <View style={styles.pieContainer}>
+                <Text style={styles.pieTitle}>Spending by Category</Text>
+                <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                  <SimplePieChart data={totalsByCategory} size={180} colors={pieColors} />
+                </View>
+                <View style={styles.pieLegend}>
+                  {pieEntries.map(([cat, value], idx) => {
+                    const total = pieEntries.reduce((s, [, v]) => s + v, 0);
+                    const pct = total ? ((value / total) * 100).toFixed(1) : '0.0';
+                    return (
+                      <View key={cat} style={styles.legendRow}>
+                        <View style={[styles.legendDot, { backgroundColor: pieColors[idx % pieColors.length] }]} />
+                        <Text style={styles.legendCat}>{cat}</Text>
+                        <Text style={styles.legendValue}>${value.toFixed(2)}</Text>
+                        <Text style={styles.legendPercent}>({pct}%)</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+ 
+            {/* By Category (filtered set) — tappable to filter list by category */}
+            <View style={styles.byCategoryContainer}>
+              <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
+              {Object.keys(totalsByCategory).length === 0 ? (
+                <Text style={styles.byCategoryEmpty}>No category totals</Text>
+              ) : (
+                <>
+                  {/* "All" entry to clear category filter */}
+                  <TouchableOpacity onPress={() => setCategoryFilter('all')} style={[styles.byCategoryRow, categoryFilter === 'all' && styles.byCategoryActive]}>
+                    <Text style={styles.byCategoryLabel}>• All</Text>
+                    <Text style={styles.byCategoryAmount}>${Object.values(totalsByCategory).reduce((s, v) => s + v, 0).toFixed(2)}</Text>
+                  </TouchableOpacity>
+
+                  {Object.entries(totalsByCategory)
+                    // optional: sort by descending amount so biggest categories appear first
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([cat, sum]) => (
+                      <TouchableOpacity
+                        key={cat}
+                        onPress={() => setCategoryFilter(cat)}
+                        style={[styles.byCategoryRow, categoryFilter === cat && styles.byCategoryActive]}
+                      >
+                        <Text style={styles.byCategoryLabel}>• {cat}</Text>
+                        <Text style={styles.byCategoryAmount}>${sum.toFixed(2)}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </>
+              )}
+            </View>
+          </>
+        }
+        contentContainerStyle={{ paddingBottom: 48 }}
       />
   
       <Text style={styles.footer}>
