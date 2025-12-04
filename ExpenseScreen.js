@@ -11,40 +11,32 @@ import {
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import Svg, { Path } from 'react-native-svg';
-import { Dimensions } from 'react-native';
-const screenWidth = Dimensions.get('window').width;
 
-// Simple lightweight SVG pie chart (no extra native deps)
-const SimplePieChart = ({ data, size = 160 }) => {
-  const center = size / 2;
-  const radius = center - 4;
-  const total = Object.values(data).reduce((s, v) => s + v, 0);
+// simple, dependency-light pie chart using react-native-svg
+const SimplePieChart = ({ data, size = 180, colors = [] }) => {
+  const entries = Object.entries(data).filter(([, v]) => v > 0);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
   if (total === 0) return null;
 
-  const colors = ['#fbbf24', '#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#14b8a6', '#ec4899'];
-  let currentAngle = -Math.PI / 2;
-  const paths = [];
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 2;
+  let start = -Math.PI / 2;
+  const slices = entries.map(([k, v], i) => {
+    const angle = (v / total) * Math.PI * 2;
+    const end = start + angle;
+    const x1 = cx + r * Math.cos(start);
+    const y1 = cy + r * Math.sin(start);
+    const x2 = cx + r * Math.cos(end);
+    const y2 = cy + r * Math.sin(end);
+    const largeArc = angle > Math.PI ? 1 : 0;
+    const d = `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+    const slice = <Path key={k} d={d} fill={colors[i % colors.length]} />;
+    start = end;
+    return slice;
+  });
 
-  Object.entries(data)
-    .sort((a, b) => b[1] - a[1])
-    .forEach(([label, value], idx) => {
-      const sliceAngle = (value / total) * Math.PI * 2;
-      const endAngle = currentAngle + sliceAngle;
-      const x1 = center + radius * Math.cos(currentAngle);
-      const y1 = center + radius * Math.sin(currentAngle);
-      const x2 = center + radius * Math.cos(endAngle);
-      const y2 = center + radius * Math.sin(endAngle);
-      const largeArc = sliceAngle > Math.PI ? 1 : 0;
-      const d = `M ${center} ${center} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${radius} ${radius} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
-      paths.push(<Path key={label} d={d} fill={colors[idx % colors.length]} />);
-      currentAngle = endAngle;
-    });
-
-  return (
-    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-      {paths}
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices}</Svg>;
 };
 
 export default function ExpenseScreen() {
@@ -198,6 +190,10 @@ export default function ExpenseScreen() {
     return acc;
   }, {});
 
+  // pie entries and palette (used for chart + legend)
+  const pieEntries = Object.entries(totalsByCategory).sort((a, b) => b[1] - a[1]);
+  const pieColors = ['#fbbf24', '#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#14b8a6', '#ec4899'];
+
   // apply category filter on top of time-based filtering
   const finalFiltered = filteredExpenses.filter((it) =>
     categoryFilter === 'all' ? true : it.category === categoryFilter
@@ -318,33 +314,30 @@ export default function ExpenseScreen() {
         <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
       </View>
 
-      {/* Pie Chart for Expense Distribution by Category */}
-      {Object.keys(totalsByCategory).length > 0 && (
+      {/* Pie chart for current time filter (uses totalsByCategory) */}
+      {pieEntries.length > 0 && (
         <View style={styles.pieContainer}>
           <Text style={styles.pieTitle}>Spending by Category</Text>
-          <View style={{ alignItems: 'center', marginVertical: 12 }}>
-            <SimplePieChart data={totalsByCategory} size={Math.min(200, screenWidth - 80)} />
+          <View style={{ alignItems: 'center', marginVertical: 10 }}>
+            <SimplePieChart data={totalsByCategory} size={180} colors={pieColors} />
           </View>
           <View style={styles.pieLegend}>
-            {Object.entries(totalsByCategory)
-              .sort((a, b) => b[1] - a[1])
-              .map(([cat, value], idx) => {
-                const total = Object.values(totalsByCategory).reduce((s, v) => s + v, 0) || 1;
-                const percent = ((value / total) * 100).toFixed(1);
-                const colors = ['#fbbf24', '#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#14b8a6', '#ec4899'];
-                return (
-                  <View key={cat} style={styles.legendRow}>
-                    <View style={[styles.legendDot, { backgroundColor: colors[idx % colors.length] }]} />
-                    <Text style={styles.legendCat}>{cat}</Text>
-                    <Text style={styles.legendValue}>${value.toFixed(2)}</Text>
-                    <Text style={styles.legendPercent}>({percent}%)</Text>
-                  </View>
-                );
-              })}
+            {pieEntries.map(([cat, value], idx) => {
+              const total = pieEntries.reduce((s, [, v]) => s + v, 0);
+              const pct = total ? ((value / total) * 100).toFixed(1) : '0.0';
+              return (
+                <View key={cat} style={styles.legendRow}>
+                  <View style={[styles.legendDot, { backgroundColor: pieColors[idx % pieColors.length] }]} />
+                  <Text style={styles.legendCat}>{cat}</Text>
+                  <Text style={styles.legendValue}>${value.toFixed(2)}</Text>
+                  <Text style={styles.legendPercent}>({pct}%)</Text>
+                </View>
+              );
+            })}
           </View>
         </View>
       )}
-  
+ 
       {/* By Category (filtered set) — tappable to filter list by category */}
       <View style={styles.byCategoryContainer}>
         <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
@@ -467,51 +460,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  pieContainer: {
-    backgroundColor: '#1f2937',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  pieTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  pieLegend: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 4,
-  },
-  legendDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  legendCat: {
-    color: '#e5e7eb',
-    fontSize: 14,
-    marginRight: 4,
-  },
-  legendValue: {
-    color: '#fbbf24',
-    fontSize: 14,
-    fontWeight: '700',
-    marginRight: 4,
-  },
-  legendPercent: {
-    color: '#9ca3af',
-    fontSize: 14,
-  },
   byCategoryContainer: {
     backgroundColor: '#1f2937',
     borderRadius: 8,
@@ -549,4 +497,50 @@ const styles = StyleSheet.create({
     backgroundColor: '#081226',
     borderRadius: 6,
   },
+  /* pie chart styles */
+  pieContainer: {
+    backgroundColor: '#1f2937',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  pieTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  pieLegend: {
+    marginTop: 8,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 3,
+    marginRight: 8,
+  },
+  legendCat: {
+    color: '#e5e7eb',
+    fontSize: 13,
+    flex: 1,
+  },
+  legendValue: {
+    color: '#fbbf24',
+    fontSize: 13,
+    fontWeight: '700',
+    marginRight: 6,
+  },
+  legendPercent: {
+    color: '#9ca3af',
+    fontSize: 12,
+  },
 });
+// add a pie chart that visualizes the expense distribution by category
