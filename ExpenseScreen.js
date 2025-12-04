@@ -10,6 +10,42 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
+import Svg, { Path } from 'react-native-svg';
+import { Dimensions } from 'react-native';
+const screenWidth = Dimensions.get('window').width;
+
+// Simple lightweight SVG pie chart (no extra native deps)
+const SimplePieChart = ({ data, size = 160 }) => {
+  const center = size / 2;
+  const radius = center - 4;
+  const total = Object.values(data).reduce((s, v) => s + v, 0);
+  if (total === 0) return null;
+
+  const colors = ['#fbbf24', '#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#14b8a6', '#ec4899'];
+  let currentAngle = -Math.PI / 2;
+  const paths = [];
+
+  Object.entries(data)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([label, value], idx) => {
+      const sliceAngle = (value / total) * Math.PI * 2;
+      const endAngle = currentAngle + sliceAngle;
+      const x1 = center + radius * Math.cos(currentAngle);
+      const y1 = center + radius * Math.sin(currentAngle);
+      const x2 = center + radius * Math.cos(endAngle);
+      const y2 = center + radius * Math.sin(endAngle);
+      const largeArc = sliceAngle > Math.PI ? 1 : 0;
+      const d = `M ${center} ${center} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${radius} ${radius} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+      paths.push(<Path key={label} d={d} fill={colors[idx % colors.length]} />);
+      currentAngle = endAngle;
+    });
+
+  return (
+    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {paths}
+    </Svg>
+  );
+};
 
 export default function ExpenseScreen() {
   const db = useSQLiteContext();
@@ -282,6 +318,33 @@ export default function ExpenseScreen() {
         <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
       </View>
 
+      {/* Pie Chart for Expense Distribution by Category */}
+      {Object.keys(totalsByCategory).length > 0 && (
+        <View style={styles.pieContainer}>
+          <Text style={styles.pieTitle}>Spending by Category</Text>
+          <View style={{ alignItems: 'center', marginVertical: 12 }}>
+            <SimplePieChart data={totalsByCategory} size={Math.min(200, screenWidth - 80)} />
+          </View>
+          <View style={styles.pieLegend}>
+            {Object.entries(totalsByCategory)
+              .sort((a, b) => b[1] - a[1])
+              .map(([cat, value], idx) => {
+                const total = Object.values(totalsByCategory).reduce((s, v) => s + v, 0) || 1;
+                const percent = ((value / total) * 100).toFixed(1);
+                const colors = ['#fbbf24', '#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#14b8a6', '#ec4899'];
+                return (
+                  <View key={cat} style={styles.legendRow}>
+                    <View style={[styles.legendDot, { backgroundColor: colors[idx % colors.length] }]} />
+                    <Text style={styles.legendCat}>{cat}</Text>
+                    <Text style={styles.legendValue}>${value.toFixed(2)}</Text>
+                    <Text style={styles.legendPercent}>({percent}%)</Text>
+                  </View>
+                );
+              })}
+          </View>
+        </View>
+      )}
+  
       {/* By Category (filtered set) — tappable to filter list by category */}
       <View style={styles.byCategoryContainer}>
         <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
@@ -403,6 +466,51 @@ const styles = StyleSheet.create({
     color: '#fbbf24',
     fontSize: 16,
     fontWeight: '700',
+  },
+  pieContainer: {
+    backgroundColor: '#1f2937',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  pieTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  pieLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  legendCat: {
+    color: '#e5e7eb',
+    fontSize: 14,
+    marginRight: 4,
+  },
+  legendValue: {
+    color: '#fbbf24',
+    fontSize: 14,
+    fontWeight: '700',
+    marginRight: 4,
+  },
+  legendPercent: {
+    color: '#9ca3af',
+    fontSize: 14,
   },
   byCategoryContainer: {
     backgroundColor: '#1f2937',
