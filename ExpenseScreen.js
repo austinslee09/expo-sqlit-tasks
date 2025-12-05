@@ -10,34 +10,6 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
-import Svg, { Path } from 'react-native-svg';
-
-// simple, dependency-light pie chart using react-native-svg
-const SimplePieChart = ({ data, size = 180, colors = [] }) => {
-  const entries = Object.entries(data).filter(([, v]) => v > 0);
-  const total = entries.reduce((s, [, v]) => s + v, 0);
-  if (total === 0) return null;
-
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = size / 2 - 2;
-  let start = -Math.PI / 2;
-  const slices = entries.map(([k, v], i) => {
-    const angle = (v / total) * Math.PI * 2;
-    const end = start + angle;
-    const x1 = cx + r * Math.cos(start);
-    const y1 = cy + r * Math.sin(start);
-    const x2 = cx + r * Math.cos(end);
-    const y2 = cy + r * Math.sin(end);
-    const largeArc = angle > Math.PI ? 1 : 0;
-    const d = `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
-    const slice = <Path key={k} d={d} fill={colors[i % colors.length]} />;
-    start = end;
-    return slice;
-  });
-
-  return <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices}</Svg>;
-};
 
 export default function ExpenseScreen() {
   const db = useSQLiteContext();
@@ -157,50 +129,30 @@ export default function ExpenseScreen() {
     );
   };
 
-  /* replace the filteredExpenses definition with the following improved logic */
+  // compute filteredExpenses based on time filter state (All / week / month)
   const filteredExpenses = expenses.filter((item) => {
-	// keep items when no time filtering requested
-	if (filter === 'all') return true;
+    if (filter === 'all') return true;
+    if (!item.date) return false;
 
-	// must have a date to be included in week/month filters
-	if (!item.date) return false;
+    const d = new Date(item.date);
+    if (isNaN(d.getTime())) return false;
 
-	// parse as local midnight to avoid timezone roll issues (expects "YYYY-MM-DD")
-	const parseIsoDate = (iso) => {
-		try {
-			// Ensure we create a local-date at midnight
-			return new Date(`${iso}T00:00:00`);
-		} catch {
-			return new Date(NaN);
-		}
-	};
+    const now = new Date();
 
-	const d = parseIsoDate(item.date);
-	if (isNaN(d.getTime())) return false;
+    if (filter === 'week') {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(now.getDate() - 6); // include today and last 6 days = 7-day window
+      // compare only date part
+      const dateOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return dateOnly >= new Date(sevenDaysAgo.getFullYear(), sevenDaysAgo.getMonth(), sevenDaysAgo.getDate());
+    }
 
-	const now = new Date();
+    if (filter === 'month') {
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }
 
-	if (filter === 'week') {
-		// Compute start of current week (Monday) and end (Sunday)
-		const day = now.getDay(); // 0 (Sun) .. 6 (Sat)
-		// Convert to 0=Mon .. 6=Sun by (day+6)%7, then subtract to get Monday
-		const daysSinceMonday = (day + 6) % 7;
-		const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysSinceMonday);
-		startOfWeek.setHours(0, 0, 0, 0);
-		const endOfWeek = new Date(startOfWeek);
-		endOfWeek.setDate(startOfWeek.getDate() + 6);
-		endOfWeek.setHours(23, 59, 59, 999);
-
-		return d >= startOfWeek && d <= endOfWeek;
-	}
-
-	if (filter === 'month') {
-		// Same calendar month and year
-		return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-	}
-
-	return true;
-});
+    return true;
+  });
 
   // totals per category for the currently time-filtered set
   const totalsByCategory = filteredExpenses.reduce((acc, it) => {
@@ -209,10 +161,6 @@ export default function ExpenseScreen() {
     acc[cat] = (acc[cat] || 0) + (isNaN(n) ? 0 : n);
     return acc;
   }, {});
-
-  // pie entries and palette (used for chart + legend)
-  const pieEntries = Object.entries(totalsByCategory).sort((a, b) => b[1] - a[1]);
-  const pieColors = ['#fbbf24', '#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#14b8a6', '#ec4899'];
 
   // apply category filter on top of time-based filtering
   const finalFiltered = filteredExpenses.filter((it) =>
@@ -255,149 +203,120 @@ export default function ExpenseScreen() {
   
   return (
     <SafeAreaView style={styles.container}>
+      <Text style={styles.heading}>Student Expense Tracker</Text>
+  
+      <View style={styles.form}>
+        <TextInput
+          style={styles.input}
+          placeholder="Amount (e.g. 12.50)"
+          placeholderTextColor="#9ca3af"
+          keyboardType="numeric"
+          value={amount}
+          onChangeText={setAmount}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Category (Food, Books, Rent...)"
+          placeholderTextColor="#9ca3af"
+          value={category}
+          onChangeText={setCategory}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Note (optional)"
+          placeholderTextColor="#9ca3af"
+          value={note}
+          onChangeText={setNote}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Date (YYYY-MM-DD) — ISO"
+          placeholderTextColor="#9ca3af"
+          value={date}
+          onChangeText={(text) => {
+            // allow only digits and hyphens, max length 10
+            const cleaned = text.replace(/[^0-9-]/g, '').slice(0, 10);
+            setDate(cleaned);
+          }}
+          onEndEditing={() => {
+            // optional: if not a full ISO date, clear it (keeps UI strict)
+            if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+              setDate('');
+            }
+          }}
+        />
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <Button title={editingId ? 'Save changes' : 'Add Expense'} onPress={addExpense} />
+          {editingId ? (
+            <Button
+              title="Cancel"
+              color="#f87171"
+              onPress={() => {
+                setEditingId(null);
+                setAmount('');
+                setCategory('');
+                setNote('');
+                setDate('');
+              }}
+            />
+          ) : null}
+        </View>
+      </View>
+  
+      {/* Filter controls */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
+        <TouchableOpacity onPress={() => setFilter('all')} style={{ marginHorizontal: 6 }}>
+          <Text style={{ color: filter === 'all' ? '#fff' : '#9ca3af' }}>All</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setFilter('week')} style={{ marginHorizontal: 6 }}>
+          <Text style={{ color: filter === 'week' ? '#fff' : '#9ca3af' }}>This week</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setFilter('month')} style={{ marginHorizontal: 6 }}>
+          <Text style={{ color: filter === 'month' ? '#fff' : '#9ca3af' }}>This month</Text>
+        </TouchableOpacity>
+      </View>
+  
+      {/* Visible total */}
+      <View style={styles.totalContainer}>
+        <Text style={styles.totalLabel}>Total (visible):</Text>
+        <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
+      </View>
+
+      {/* By Category (filtered set) — tappable to filter list by category */}
+      <View style={styles.byCategoryContainer}>
+        <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
+        {Object.keys(totalsByCategory).length === 0 ? (
+          <Text style={styles.byCategoryEmpty}>No category totals</Text>
+        ) : (
+          <>
+            {/* "All" entry to clear category filter */}
+            <TouchableOpacity onPress={() => setCategoryFilter('all')} style={[styles.byCategoryRow, categoryFilter === 'all' && styles.byCategoryActive]}>
+              <Text style={styles.byCategoryLabel}>• All</Text>
+              <Text style={styles.byCategoryAmount}>${Object.values(totalsByCategory).reduce((s, v) => s + v, 0).toFixed(2)}</Text>
+            </TouchableOpacity>
+
+            {Object.entries(totalsByCategory)
+              // optional: sort by descending amount so biggest categories appear first
+              .sort((a, b) => b[1] - a[1])
+              .map(([cat, sum]) => (
+                <TouchableOpacity
+                  key={cat}
+                  onPress={() => setCategoryFilter(cat)}
+                  style={[styles.byCategoryRow, categoryFilter === cat && styles.byCategoryActive]}
+                >
+                  <Text style={styles.byCategoryLabel}>• {cat}</Text>
+                  <Text style={styles.byCategoryAmount}>${sum.toFixed(2)}</Text>
+                </TouchableOpacity>
+              ))}
+          </>
+        )}
+      </View>
+  
       <FlatList
         data={finalFiltered}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderExpense}
         ListEmptyComponent={<Text style={styles.empty}>No expenses yet.</Text>}
-        // header contains the form, filters, totals, pie chart and category summary
-        ListHeaderComponent={
-          <>
-            <Text style={styles.heading}>Student Expense Tracker</Text>
-  
-            <View style={styles.form}>
-              <TextInput
-                style={styles.input}
-                placeholder="Amount (e.g. 12.50)"
-                placeholderTextColor="#9ca3af"
-                keyboardType="numeric"
-                value={amount}
-                onChangeText={setAmount}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Category (Food, Books, Rent...)"
-                placeholderTextColor="#9ca3af"
-                value={category}
-                onChangeText={setCategory}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Note (optional)"
-                placeholderTextColor="#9ca3af"
-                value={note}
-                onChangeText={setNote}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Date (YYYY-MM-DD) — ISO"
-                placeholderTextColor="#9ca3af"
-                value={date}
-                onChangeText={(text) => {
-                  // allow only digits and hyphens, max length 10
-                  const cleaned = text.replace(/[^0-9-]/g, '').slice(0, 10);
-                  setDate(cleaned);
-                }}
-                onEndEditing={() => {
-                  // optional: if not a full ISO date, clear it (keeps UI strict)
-                  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-                    setDate('');
-                  }
-                }}
-              />
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                <Button title={editingId ? 'Save changes' : 'Add Expense'} onPress={addExpense} />
-                {editingId ? (
-                  <Button
-                    title="Cancel"
-                    color="#f87171"
-                    onPress={() => {
-                      setEditingId(null);
-                      setAmount('');
-                      setCategory('');
-                      setNote('');
-                      setDate('');
-                    }}
-                  />
-                ) : null}
-              </View>
-            </View>
-  
-            {/* Filter controls */}
-            <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
-              <TouchableOpacity onPress={() => setFilter('all')} style={{ marginHorizontal: 6 }}>
-                <Text style={{ color: filter === 'all' ? '#fff' : '#9ca3af' }}>All</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setFilter('week')} style={{ marginHorizontal: 6 }}>
-                <Text style={{ color: filter === 'week' ? '#fff' : '#9ca3af' }}>This week</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setFilter('month')} style={{ marginHorizontal: 6 }}>
-                <Text style={{ color: filter === 'month' ? '#fff' : '#9ca3af' }}>This month</Text>
-              </TouchableOpacity>
-            </View>
-  
-            {/* Visible total */}
-            <View style={styles.totalContainer}>
-              <Text style={styles.totalLabel}>Total (visible):</Text>
-              <Text style={styles.totalAmount}>${visibleTotal.toFixed(2)}</Text>
-            </View>
-
-            {/* Pie chart for current time filter (uses totalsByCategory) */}
-            {pieEntries.length > 0 && (
-              <View style={styles.pieContainer}>
-                <Text style={styles.pieTitle}>Spending by Category</Text>
-                <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                  <SimplePieChart data={totalsByCategory} size={180} colors={pieColors} />
-                </View>
-                <View style={styles.pieLegend}>
-                  {pieEntries.map(([cat, value], idx) => {
-                    const total = pieEntries.reduce((s, [, v]) => s + v, 0);
-                    const pct = total ? ((value / total) * 100).toFixed(1) : '0.0';
-                    return (
-                      <View key={cat} style={styles.legendRow}>
-                        <View style={[styles.legendDot, { backgroundColor: pieColors[idx % pieColors.length] }]} />
-                        <Text style={styles.legendCat}>{cat}</Text>
-                        <Text style={styles.legendValue}>${value.toFixed(2)}</Text>
-                        <Text style={styles.legendPercent}>({pct}%)</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
- 
-            {/* By Category (filtered set) — tappable to filter list by category */}
-            <View style={styles.byCategoryContainer}>
-              <Text style={styles.byCategoryTitle}>By Category ({filterLabel}):</Text>
-              {Object.keys(totalsByCategory).length === 0 ? (
-                <Text style={styles.byCategoryEmpty}>No category totals</Text>
-              ) : (
-                <>
-                  {/* "All" entry to clear category filter */}
-                  <TouchableOpacity onPress={() => setCategoryFilter('all')} style={[styles.byCategoryRow, categoryFilter === 'all' && styles.byCategoryActive]}>
-                    <Text style={styles.byCategoryLabel}>• All</Text>
-                    <Text style={styles.byCategoryAmount}>${Object.values(totalsByCategory).reduce((s, v) => s + v, 0).toFixed(2)}</Text>
-                  </TouchableOpacity>
-
-                  {Object.entries(totalsByCategory)
-                    // optional: sort by descending amount so biggest categories appear first
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([cat, sum]) => (
-                      <TouchableOpacity
-                        key={cat}
-                        onPress={() => setCategoryFilter(cat)}
-                        style={[styles.byCategoryRow, categoryFilter === cat && styles.byCategoryActive]}
-                      >
-                        <Text style={styles.byCategoryLabel}>• {cat}</Text>
-                        <Text style={styles.byCategoryAmount}>${sum.toFixed(2)}</Text>
-                      </TouchableOpacity>
-                    ))}
-                </>
-              )}
-            </View>
-          </>
-        }
-        contentContainerStyle={{ paddingBottom: 48 }}
       />
   
       <Text style={styles.footer}>
@@ -521,50 +440,5 @@ const styles = StyleSheet.create({
   byCategoryActive: {
     backgroundColor: '#081226',
     borderRadius: 6,
-  },
-  /* pie chart styles */
-  pieContainer: {
-    backgroundColor: '#1f2937',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#374151',
-  },
-  pieTitle: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  pieLegend: {
-    marginTop: 8,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 4,
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 3,
-    marginRight: 8,
-  },
-  legendCat: {
-    color: '#e5e7eb',
-    fontSize: 13,
-    flex: 1,
-  },
-  legendValue: {
-    color: '#fbbf24',
-    fontSize: 13,
-    fontWeight: '700',
-    marginRight: 6,
-  },
-  legendPercent: {
-    color: '#9ca3af',
-    fontSize: 12,
   },
 });
